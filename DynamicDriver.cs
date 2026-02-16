@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using LINQPad.Extensibility.DataContext;
 using System.Collections.Generic;
 using System.Data;
@@ -28,9 +31,9 @@ namespace OData4.LINQPadDriver
 
 		private List<string> _namespaces;
 
-		public override string Name => "OData v4 Connection";
+		public override string Name => "OData v4 Connection (.NET 10)";
 
-		public override string Author => "Dmitrii Smirnov";
+		public override string Author => "Dmitrii Smirnov, hamamotsu";
 
 		public override string GetConnectionDescription(IConnectionInfo connectionInfo)
 		{
@@ -109,7 +112,7 @@ namespace OData4.LINQPadDriver
 			};
 			var code = codeGenerator.TransformText();
 
-			BuildAssembly(code, assemblyToBuild);
+			BuildAssembly(code, assemblyToBuild, connectionInfo);
 
 			var model = properties.GetModel();
 
@@ -119,7 +122,7 @@ namespace OData4.LINQPadDriver
 			return schema;
 		}
 
-		private static void BuildAssembly(string code, AssemblyName assemblyToBuild)
+		private static void BuildAssembly(string code, AssemblyName assemblyToBuild, IConnectionInfo connectionInfo)
 		{
 			var assemblies = new List<string>
 			{
@@ -128,7 +131,7 @@ namespace OData4.LINQPadDriver
 				typeof(Microsoft.Spatial.Geometry).Assembly.Location,
 			};
 
-			var references = GetCoreFxReferenceAssemblies()
+			var references = GetCoreFxReferenceAssemblies(connectionInfo)
 				.Concat(assemblies)
 				.Select(x => MetadataReference.CreateFromFile(x));
 
@@ -140,7 +143,9 @@ namespace OData4.LINQPadDriver
 				.AddReferences(references)
 				.AddSyntaxTrees(CSharpSyntaxTree.ParseText(code));
 
-			using var fileStream = File.OpenWrite(assemblyToBuild.CodeBase);
+#pragma warning disable SYSLIB0044
+			using var fileStream = File.Create(assemblyToBuild.CodeBase);
+#pragma warning restore SYSLIB0044
 
 			var results = compilation.Emit(fileStream);
 
@@ -151,6 +156,7 @@ namespace OData4.LINQPadDriver
 
 			var msg = results
 				.Diagnostics
+				.Where(d => d.Severity == DiagnosticSeverity.Error)
 				.Aggregate("Can't compile typed context:", (s, e) => s + Environment.NewLine + e.GetMessage());
 
 			throw new Exception(msg);
@@ -163,10 +169,82 @@ namespace OData4.LINQPadDriver
 		{
 			var root = model.EntityContainer;
 
-			// FIX ?
-			var containerName = model.DeclaredNamespaces.Count() > 1 ? root.FullName() : root.Name;
+			// Count namespaces from all schema elements in the model tree,
+			// matching the T4 template's NamespacesInModel logic.
+			var allNamespaces = GetNamespacesFromModelTree(model);
+			var containerName = allNamespaces.Count > 1 ? root.FullName() : root.Name;
 
 			return containerName;
+		}
+
+		private static HashSet<string> GetNamespacesFromModelTree(IEdmModel model)
+		{
+			var namespaces = new HashSet<string>(model.SchemaElements.Select(e => e.Namespace));
+
+			foreach (var referenced in model.ReferencedModels)
+			{
+				if (referenced is Microsoft.OData.Edm.EdmCoreModel)
+					continue;
+
+				// Skip well-known vocabulary models (same filter as T4 template)
+				if (referenced.FindDeclaredTerm("Org.OData.Core.V1.OptimisticConcurrency") != null ||
+					referenced.FindDeclaredTerm("Org.OData.Capabilities.V1.ChangeTracking") != null ||
+					referenced.FindDeclaredTerm("Org.OData.Core.V1.AlternateKeys") != null ||
+					referenced.FindDeclaredTerm("Org.OData.Authorization.V1.Authorizations") != null ||
+					referenced.FindDeclaredTerm("Org.OData.Validation.V1.DerivedTypeConstraint") != null ||
+					referenced.FindDeclaredTerm("Org.OData.Community.V1.UrlEscapeFunction") != null)
+					continue;
+
+				foreach (var e in referenced.SchemaElements)
+					namespaces.Add(e.Namespace);
+			}
+
+			return namespaces;
+		}
+
+		private class CustomHttpClientFactory : IHttpClientFactory
+		{
+			private readonly ConnectionProperties _properties;
+
+			public CustomHttpClientFactory(ConnectionProperties properties)
+			{
+				_properties = properties;
+			}
+
+			public HttpClient CreateClient(string name)
+			{
+				var handler = CreateHandler(_properties);
+				return new HttpClient(handler, disposeHandler: true);
+			}
+		}
+
+		private static HttpClientHandler CreateHandler(ConnectionProperties properties)
+		{
+			var handler = new HttpClientHandler();
+
+			handler.Proxy = properties.GetWebProxy();
+			handler.UseProxy = true;
+
+			var credentials = properties.GetCredentials();
+			if (credentials != null)
+			{
+				handler.Credentials = credentials;
+				handler.PreAuthenticate = true;
+			}
+
+			var cert = properties.GetClientCertificate();
+			if (cert != null)
+			{
+				handler.ClientCertificates.Add(cert);
+			}
+
+			if (properties.AcceptInvalidCertificate)
+			{
+				handler.ServerCertificateCustomValidationCallback =
+					HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+			}
+
+			return handler;
 		}
 
 		public override void InitializeContext(IConnectionInfo connectionInfo, object context, QueryExecutionManager executionManager)
@@ -174,21 +252,32 @@ namespace OData4.LINQPadDriver
 			var dsContext = (DataServiceContext)context;
 
 			var properties = connectionInfo.GetConnectionProperties();
-			dsContext.Credentials = properties.GetCredentials();
 
-			dsContext.Configurations.RequestPipeline.OnMessageCreating += args =>
-			{
-				var message = new CustomizedRequestMessage(args, properties);
-				return message;
-			};
+			// Set IHttpClientFactory on DataServiceContext
+			dsContext.HttpClientFactory = new CustomHttpClientFactory(properties);
 
 			var writer = executionManager.SqlTranslationWriter;
 
-			if (writer == null) // we in lprun and haven't log writer
-				return;
-
+			// SendingRequest2: custom headers, Basic auth header, and logging
 			dsContext.SendingRequest2 += (s, e) =>
 			{
+				// Custom headers
+				foreach (var kv in properties.CustomHeaders)
+					e.RequestMessage.SetHeader(kv.Key, kv.Value);
+
+				// Basic auth header
+				if (properties.AuthenticationType == AuthenticationType.Basic
+					&& !string.IsNullOrEmpty(properties.UserName))
+				{
+					var basic = Convert.ToBase64String(
+						Encoding.ASCII.GetBytes($"{properties.UserName}:{properties.Password}"));
+					e.RequestMessage.SetHeader("Authorization", $"Basic {basic}");
+				}
+
+				// Logging
+				if (writer == null)
+					return;
+
 				writer.WriteLine($"URL:\t\t{e.RequestMessage.Url}");
 
 				if (properties.LogMethod)

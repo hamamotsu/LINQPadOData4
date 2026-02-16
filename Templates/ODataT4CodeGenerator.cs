@@ -24,6 +24,7 @@ namespace OData4.LINQPadDriver.Templates
     using Microsoft.OData.Edm.Vocabularies.Community.V1;
     using System.Text;
     using System.Net;
+    using System.Net.Http;
     
     /// <summary>
     /// Class to produce the template output
@@ -943,34 +944,49 @@ public class CodeGenerationContext
         {
             try
             {
-                HttpWebRequest webRequest = (HttpWebRequest)WebRequest.Create(metadataUri);
+                using var handler = new HttpClientHandler();
 
-                webRequest.Credentials = properties.GetCredentials();
-                webRequest.Proxy = properties.GetWebProxy();
-                webRequest.Headers.Add(properties.GetCustomHeaders());
+                var credentials = properties.GetCredentials();
+                if (credentials != null)
+                {
+                    handler.Credentials = credentials;
+                    handler.PreAuthenticate = true;
+                }
+
+                handler.Proxy = properties.GetWebProxy();
+                handler.UseProxy = true;
 
                 var cert = properties.GetClientCertificate();
                 if (cert != null)
                 {
-                    webRequest.ClientCertificates.Add(cert);
+                    handler.ClientCertificates.Add(cert);
                 }
 
-                ServicePointManager.ServerCertificateValidationCallback += (sender, certificate, chain, sslPolicyErrors) => properties.AcceptInvalidCertificate;
+                if (properties.AcceptInvalidCertificate)
+                {
+                    handler.ServerCertificateCustomValidationCallback =
+                        HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+                }
 
-                WebResponse webResponse = webRequest.GetResponse();
-                metadataStream = webResponse.GetResponseStream();
+                using var httpClient = new HttpClient(handler);
+
+                foreach (var kv in properties.CustomHeaders)
+                    httpClient.DefaultRequestHeaders.TryAddWithoutValidation(kv.Key, kv.Value);
+
+                using var response = httpClient.GetAsync(metadataUri).GetAwaiter().GetResult();
+                response.EnsureSuccessStatusCode();
+
+                var memStream = new MemoryStream();
+                using (var contentStream = response.Content.ReadAsStream())
+                {
+                    contentStream.CopyTo(memStream);
+                }
+                memStream.Position = 0;
+                metadataStream = memStream;
             }
-            catch (WebException e)
+            catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.Unauthorized)
             {
-                HttpWebResponse webResponse = e.Response as HttpWebResponse;
-                if (webResponse != null && webResponse.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    throw new WebException("Failed to access the metadata document. The OData service requires authentication for accessing it. Please download the metadata, store it into a local file, and set the value of “MetadataDocumentUri” in the .odata.config file to the file path. After that, run custom tool again to generate the OData Client code.");
-                }
-                else
-                {
-                    throw e;
-                }
+                throw new WebException("Failed to access the metadata document. The OData service requires authentication for accessing it. Please download the metadata, store it into a local file, and set the value of \u201cMetadataDocumentUri\u201d in the .odata.config file to the file path. After that, run custom tool again to generate the OData Client code.");
             }
         }
         else
@@ -1258,11 +1274,14 @@ public abstract class ODataClientTemplate : TemplateBase
                 else
                 {
                     IEdmEntityType entityType = type as IEdmEntityType;
-                    this.WriteEntityType(entityType, boundOperationsMap);
+                    if (entityType != null)
+                    {
+                        this.WriteEntityType(entityType, boundOperationsMap);
+                    }
                 }
 
                 IEdmStructuredType structuredType = type as IEdmStructuredType;
-                if (structuredType.BaseType != null)
+                if (structuredType != null && structuredType.BaseType != null)
                 {
                     List<IEdmStructuredType> derivedTypes;
                     if (!structuredBaseTypeMap.TryGetValue(structuredType.BaseType, out derivedTypes))

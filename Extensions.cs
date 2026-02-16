@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
 using System.Xml;
 using LINQPad.Extensibility.DataContext;
@@ -21,20 +23,57 @@ namespace OData4.LINQPadDriver
 			var uri = properties.Uri;
 			uri += uri.EndsWith("/") ? "$metadata" : "/$metadata";
 
-			var settings = new XmlReaderSettings
-			{
-				XmlResolver = new XmlUrlResolver
-				{
-					Credentials = properties.GetCredentials(),
-					Proxy = properties.GetWebProxy()
-				}
-			};
+			var stream = GetMetadataStream(uri, properties);
 
-			using var reader = XmlReader.Create(uri, settings);
+			using var reader = XmlReader.Create(stream);
 
 			var model = CsdlReader.Parse(reader);
 
 			return model;
+		}
+
+		private static Stream GetMetadataStream(string uri, ConnectionProperties properties)
+		{
+			using var handler = new HttpClientHandler();
+
+			var credentials = properties.GetCredentials();
+			if (credentials != null)
+			{
+				handler.Credentials = credentials;
+				handler.PreAuthenticate = true;
+			}
+
+			handler.Proxy = properties.GetWebProxy();
+			handler.UseProxy = true;
+
+			var cert = properties.GetClientCertificate();
+			if (cert != null)
+			{
+				handler.ClientCertificates.Add(cert);
+			}
+
+			if (properties.AcceptInvalidCertificate)
+			{
+				handler.ServerCertificateCustomValidationCallback =
+					HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+			}
+
+			using var httpClient = new HttpClient(handler);
+
+			foreach (var kv in properties.CustomHeaders)
+				httpClient.DefaultRequestHeaders.TryAddWithoutValidation(kv.Key, kv.Value);
+
+			using var response = httpClient.GetAsync(uri).GetAwaiter().GetResult();
+			response.EnsureSuccessStatusCode();
+
+			var memoryStream = new MemoryStream();
+			using (var contentStream = response.Content.ReadAsStream())
+			{
+				contentStream.CopyTo(memoryStream);
+			}
+			memoryStream.Position = 0;
+
+			return memoryStream;
 		}
 
 		public static List<ExplorerItem> GetSchema(this IEdmModel model)
