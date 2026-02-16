@@ -67,7 +67,10 @@ namespace OData4.LINQPadDriver
 			response.EnsureSuccessStatusCode();
 
 			var memoryStream = new MemoryStream();
-			response.Content.ReadAsStream().CopyTo(memoryStream);
+			using (var contentStream = response.Content.ReadAsStream())
+			{
+				contentStream.CopyTo(memoryStream);
+			}
 			memoryStream.Position = 0;
 
 			return memoryStream;
