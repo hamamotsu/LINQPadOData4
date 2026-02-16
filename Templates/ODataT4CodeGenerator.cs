@@ -944,7 +944,7 @@ public class CodeGenerationContext
         {
             try
             {
-                var handler = new HttpClientHandler();
+                using var handler = new HttpClientHandler();
 
                 var credentials = properties.GetCredentials();
                 if (credentials != null)
@@ -968,21 +968,18 @@ public class CodeGenerationContext
                         HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
                 }
 
-                var httpClient = new HttpClient(handler);
+                using var httpClient = new HttpClient(handler);
 
                 foreach (var kv in properties.CustomHeaders)
                     httpClient.DefaultRequestHeaders.TryAddWithoutValidation(kv.Key, kv.Value);
 
-                var response = httpClient.GetAsync(metadataUri).GetAwaiter().GetResult();
+                using var response = httpClient.GetAsync(metadataUri).GetAwaiter().GetResult();
                 response.EnsureSuccessStatusCode();
 
-                // Copy to MemoryStream so the result is independent of HttpClient lifetime
                 var memStream = new MemoryStream();
                 response.Content.ReadAsStream().CopyTo(memStream);
                 memStream.Position = 0;
                 metadataStream = memStream;
-
-                httpClient.Dispose();
             }
             catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.Unauthorized)
             {
