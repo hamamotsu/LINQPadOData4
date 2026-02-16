@@ -34,7 +34,7 @@ namespace OData4.LINQPadDriver
 
 		private static Stream GetMetadataStream(string uri, ConnectionProperties properties)
 		{
-			var handler = new HttpClientHandler();
+			using var handler = new HttpClientHandler();
 
 			var credentials = properties.GetCredentials();
 			if (credentials != null)
@@ -58,20 +58,17 @@ namespace OData4.LINQPadDriver
 					HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 			}
 
-			var httpClient = new HttpClient(handler);
+			using var httpClient = new HttpClient(handler);
 
 			foreach (var kv in properties.CustomHeaders)
 				httpClient.DefaultRequestHeaders.TryAddWithoutValidation(kv.Key, kv.Value);
 
-			var response = httpClient.GetAsync(uri).GetAwaiter().GetResult();
+			using var response = httpClient.GetAsync(uri).GetAwaiter().GetResult();
 			response.EnsureSuccessStatusCode();
 
-			// Copy to MemoryStream so the result is independent of HttpClient lifetime
 			var memoryStream = new MemoryStream();
 			response.Content.ReadAsStream().CopyTo(memoryStream);
 			memoryStream.Position = 0;
-
-			httpClient.Dispose();
 
 			return memoryStream;
 		}

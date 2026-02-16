@@ -203,13 +203,8 @@ namespace OData4.LINQPadDriver
 			return namespaces;
 		}
 
-		public override void InitializeContext(IConnectionInfo connectionInfo, object context, QueryExecutionManager executionManager)
+		private static HttpClientHandler CreateHandler(ConnectionProperties properties)
 		{
-			var dsContext = (DataServiceContext)context;
-
-			var properties = connectionInfo.GetConnectionProperties();
-
-			// Configure HttpClientHandler for proxy, credentials, client certificate, and SSL
 			var handler = new HttpClientHandler();
 
 			handler.Proxy = properties.GetWebProxy();
@@ -234,12 +229,21 @@ namespace OData4.LINQPadDriver
 					HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 			}
 
+			return handler;
+		}
+
+		public override void InitializeContext(IConnectionInfo connectionInfo, object context, QueryExecutionManager executionManager)
+		{
+			var dsContext = (DataServiceContext)context;
+
+			var properties = connectionInfo.GetConnectionProperties();
+
 			// Set IHttpClientFactory on DataServiceContext
 			var services = new ServiceCollection();
 			services.AddHttpClient(string.Empty)
-				.ConfigurePrimaryHttpMessageHandler(() => handler);
-			dsContext.HttpClientFactory = services.BuildServiceProvider()
-				.GetRequiredService<IHttpClientFactory>();
+				.ConfigurePrimaryHttpMessageHandler(() => CreateHandler(properties));
+			var serviceProvider = services.BuildServiceProvider();
+			dsContext.HttpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
 			var writer = executionManager.SqlTranslationWriter;
 
