@@ -977,7 +977,10 @@ public class CodeGenerationContext
                 response.EnsureSuccessStatusCode();
 
                 var memStream = new MemoryStream();
-                response.Content.ReadAsStream().CopyTo(memStream);
+                using (var contentStream = response.Content.ReadAsStream())
+                {
+                    contentStream.CopyTo(memStream);
+                }
                 memStream.Position = 0;
                 metadataStream = memStream;
             }
