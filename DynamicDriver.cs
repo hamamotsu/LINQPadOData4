@@ -10,7 +10,6 @@ using System.Linq;
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OData.Client;
 using Microsoft.OData.Edm;
 using OData4.LINQPadDriver.Templates;
@@ -203,6 +202,22 @@ namespace OData4.LINQPadDriver
 			return namespaces;
 		}
 
+		private class CustomHttpClientFactory : IHttpClientFactory
+		{
+			private readonly ConnectionProperties _properties;
+
+			public CustomHttpClientFactory(ConnectionProperties properties)
+			{
+				_properties = properties;
+			}
+
+			public HttpClient CreateClient(string name)
+			{
+				var handler = CreateHandler(_properties);
+				return new HttpClient(handler, disposeHandler: true);
+			}
+		}
+
 		private static HttpClientHandler CreateHandler(ConnectionProperties properties)
 		{
 			var handler = new HttpClientHandler();
@@ -239,11 +254,7 @@ namespace OData4.LINQPadDriver
 			var properties = connectionInfo.GetConnectionProperties();
 
 			// Set IHttpClientFactory on DataServiceContext
-			var services = new ServiceCollection();
-			services.AddHttpClient(string.Empty)
-				.ConfigurePrimaryHttpMessageHandler(() => CreateHandler(properties));
-			var serviceProvider = services.BuildServiceProvider();
-			dsContext.HttpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+			dsContext.HttpClientFactory = new CustomHttpClientFactory(properties);
 
 			var writer = executionManager.SqlTranslationWriter;
 
