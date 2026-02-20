@@ -4,14 +4,14 @@
         xmlns:ui="clr-namespace:OData4.LINQPadDriver"
         Title="Connection Details"
         Background="{x:Static SystemColors.ControlBrush}"
-        Width="450"
+        Width="520"
         WindowStartupLocation="CenterScreen"
         SizeToContent="Height"
         ResizeMode="NoResize">
 
-	<StackPanel Orientation="Vertical" Margin="4" >
+	<StackPanel Orientation="Vertical" Margin="8" >
 		<Label Margin="0 0 0 4">_URI</Label>
-		<TextBox Margin="0 0 0 4" Text="{Binding Uri}" Height="20" TabIndex="0"></TextBox>
+		<TextBox Margin="0 0 0 4" Text="{Binding Uri}" Height="24" TabIndex="0"></TextBox>
 		<GroupBox Header="Log on details" Margin="0 0 0 4" Padding="4">
 			<StackPanel Orientation="Vertical">
 				<StackPanel.Resources>
@@ -21,7 +21,7 @@
 				<RadioButton Margin="0 0 0 4" IsChecked="{Binding Path=AuthenticationType, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter={x:Static ui:AuthenticationType.Windows}}" TabIndex="2">_Windows authentication</RadioButton>
 				<RadioButton Margin="0 0 0 4" IsChecked="{Binding Path=AuthenticationType, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter={x:Static ui:AuthenticationType.Basic}}" TabIndex="3" x:Name="BasicAuthentication">_Basic authentication</RadioButton>
 				<RadioButton Margin="0 0 0 4" IsChecked="{Binding Path=AuthenticationType, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter={x:Static ui:AuthenticationType.ClientCertificate}}" TabIndex="4" x:Name="ClientCertificateAuthentication">_Client certificate authentication</RadioButton>
-				<StackPanel Margin="40 4 100 4" Orientation="Horizontal">
+				<StackPanel Margin="40 4 20 4" Orientation="Horizontal">
 					<StackPanel.Style>
 						<Style TargetType="StackPanel">
 							<Style.Triggers>
@@ -32,9 +32,9 @@
 						</Style>
 					</StackPanel.Style>
 					<Label Content="Certificate file:" />
-					<TextBox Text="{Binding ClientCertificateFile}" HorizontalAlignment="Stretch" Width="190" />
+					<TextBox Text="{Binding ClientCertificateFile}" HorizontalAlignment="Stretch" Width="280" />
 				</StackPanel>
-				<Grid Margin="40 4 100 4">
+				<Grid Margin="40 4 20 4">
 					<Grid.Style>
 						<Style TargetType="Grid">
 							<Style.Triggers>
@@ -54,11 +54,11 @@
 						<RowDefinition />
 					</Grid.RowDefinitions>
 					<Label Grid.Column="0" Grid.Row="0">_User name</Label>
-					<TextBox Grid.Column="1" Grid.Row="0" Height="20" TabIndex="4" Text="{Binding UserName}"></TextBox>
+					<TextBox Grid.Column="1" Grid.Row="0" Height="24" TabIndex="4" Text="{Binding UserName}"></TextBox>
 					<Label Grid.Column="0" Grid.Row="1">_Password</Label>
-					<PasswordBox Grid.Column="1" Grid.Row="1" Height="20" TabIndex="5" x:Name="PasswordBox" PasswordChanged="PasswordBox_OnPasswordChanged" />
+					<PasswordBox Grid.Column="1" Grid.Row="1" Height="24" TabIndex="5" x:Name="PasswordBox" PasswordChanged="PasswordBox_OnPasswordChanged" />
 					<Label Grid.Column="0" Grid.Row="2">_Domain (optional)</Label>
-					<TextBox Grid.Column="1" Grid.Row="2" Height="20" TabIndex="5" Text="{Binding Domain}"></TextBox>
+					<TextBox Grid.Column="1" Grid.Row="2" Height="24" TabIndex="5" Text="{Binding Domain}"></TextBox>
 				</Grid>
 			</StackPanel>
 		</GroupBox>
